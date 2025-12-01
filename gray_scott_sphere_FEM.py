@@ -1,6 +1,7 @@
 # gray_scott_sphere_FEM.py
 # Gray–Scott on a sphere surface (Laplace–Beltrami via surface FEM, DOLFINx)
 
+# imports
 import numpy as np
 from mpi4py import MPI
 from petsc4py import PETSc
@@ -15,9 +16,9 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
-comm = MPI.COMM_WORLD
-rank = comm.rank
-
+# Parallel processing
+comm = MPI.COMM_WORLD   # group containing all parallel processes
+rank = comm.rank        # ID of this process (0 = master)
 
 # Parameters 
 Du, Dv = 2e-4, 1e-4       # diffusion 
@@ -73,18 +74,18 @@ gmsh.model.mesh.generate(2) # manifold mesh (dim=2, embedding dim=3).
 domain, cell_tags, facet_tags = gmshio.model_to_mesh(gmsh.model, comm, rank, gdim=3) # converts Gmsh’s mesh → DOLFINx mesh
 gmsh.finalize()
 
-# -----------------------
-# Function space and fields
-# -----------------------
-V = fem.functionspace(domain, ("Lagrange", 1)) # P1 elements
-u = fem.Function(V, name="u")
-v = fem.Function(V, name="v")
-u_n = fem.Function(V, name="u")
-v_n = fem.Function(V, name="v")
 
-# -----------------------
+# Function space and fields (using FEniCSx syntax)
+V = fem.functionspace(domain, ("Lagrange", 1))   # P1 scalar FEM space
+# Current fields (at time t)
+u = fem.Function(V, name="u")    # chemical species U
+v = fem.Function(V, name="v")    # chemical species V
+# Previous time-step fields (at time t_n)
+u_n = fem.Function(V, name="u")  # U field at previous timestep
+v_n = fem.Function(V, name="v")  # V field at previous timestep
+
+
 # Initial condition: positive v everywhere + many random caps
-# -----------------------
 def make_multi_cap_ic(K=24, theta0=0.30,         # ~17° caps
                       u_out=0.98, v_out=0.05,    # <-- v baseline > 0
                       u_in=0.42,  v_in=0.38,     # finite-amplitude kick
@@ -115,14 +116,8 @@ u_ic, v_ic = make_multi_cap_ic()
 u_n.interpolate(u_ic); v_n.interpolate(v_ic)
 u.interpolate(u_ic);   v.interpolate(v_ic)
 
-# quick init diagnostics
-if rank == 0:
-    print(f"init u[{u.x.array.min():.3f},{u.x.array.max():.3f}] "
-          f"v[{v.x.array.min():.3f},{v.x.array.max():.3f}]")
 
-# -----------------------
-# NEW: connectivity + frame saver for movie
-# -----------------------
+# frame saver for movie (optional)
 tdim = domain.topology.dim
 domain.topology.create_connectivity(tdim, 0)   # cells -> vertices
 cells = domain.topology.connectivity(tdim, 0).array.reshape(-1, 3)
@@ -168,17 +163,16 @@ def save_u_frame(u, step, t):
     plt.close(fig)
     print(f"Saved frame {frame_path}")
 
-# -----------------------
+
+
 # Weak forms (Laplace–Beltrami comes for free on the surface mesh)
-# -----------------------
-phi = ufl.TestFunction(V)
+phi = ufl.TestFunction(V) # test function
 u_trial = ufl.TrialFunction(V)
 v_trial = ufl.TrialFunction(V)
 dx = ufl.dx
 grad = ufl.grad
 
 # Weak form 
-
 a_u = (u_trial*phi + dt*Du*ufl.inner(grad(u_trial), grad(phi))) * dx
 a_v = (v_trial*phi + dt*Dv*ufl.inner(grad(v_trial), grad(phi))) * dx
 
