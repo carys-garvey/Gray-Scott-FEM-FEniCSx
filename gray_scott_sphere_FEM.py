@@ -164,25 +164,28 @@ def save_u_frame(u, step, t):
     print(f"Saved frame {frame_path}")
 
 
-
 # Weak forms (Laplace–Beltrami comes for free on the surface mesh)
 phi = ufl.TestFunction(V) # test function
-u_trial = ufl.TrialFunction(V)
-v_trial = ufl.TrialFunction(V)
-dx = ufl.dx
-grad = ufl.grad
+u_trial = ufl.TrialFunction(V) # trial function for u^{n+1} (next time step)
+v_trial = ufl.TrialFunction(V) # trial function for v^{n+1}
+dx = ufl.dx # surface integral over mesh
+grad = ufl.grad # Laplace–Beltrami gradient on the surface (ufl does this for us, yay!) (tangential gradient)
 
-# Weak form 
+# Bilinear forms
 a_u = (u_trial*phi + dt*Du*ufl.inner(grad(u_trial), grad(phi))) * dx
 a_v = (v_trial*phi + dt*Dv*ufl.inner(grad(v_trial), grad(phi))) * dx
 
+# using implicit diffusion + explicit reactions (IMEX scheme)
 def rhs_u_form(u_old, v_old):
-    R_u = -u_old*v_old*v_old + F*(1.0 - u_old)
+    R_u = -u_old*v_old*v_old + F*(1.0 - u_old) # u_old, v_old = fields at time t^n (pass u_n, v_n in loop) R_u & R_v are reaction parts of the Gray–Scott PDE evaluated at u^n, v^n)
     return (u_old*phi + dt*R_u*phi) * dx
 
 def rhs_v_form(u_old, v_old):
     R_v =  u_old*v_old*v_old - (F + k)*v_old
     return (v_old*phi + dt*R_v*phi) * dx
+
+# Reaction terms use a first-order explicit Euler step for the reaction
+# note: Euler handles time, FEM handles space. They are orthogonal parts of the algorithm.
 
 A_u = assemble_matrix(fem.form(a_u)); A_u.assemble()
 A_v = assemble_matrix(fem.form(a_v)); A_v.assemble()
