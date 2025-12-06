@@ -27,6 +27,10 @@ dt = 0.25                 # smaller dt helps explicit reactions
 num_steps = 10000
 output_every = 250
 
+# Colorbar scaling for movie frames (fixed across time)
+CMAP_VMIN = 0.0
+CMAP_VMAX = 1.2   # matches the np.clip range for u
+
 
 # Sphere surface mesh (tdim=2, gdim=3)
 R = 1.0 # Unit sphere
@@ -124,20 +128,19 @@ cells = domain.topology.connectivity(tdim, 0).array.reshape(-1, 3)
 coords = domain.geometry.x
 faces_xyz = coords[cells]  # geometry is fixed in time
 
-def save_u_frame(u, step, t):
-    """Save a PNG of u on the sphere for this step."""
+def save_u_frame(u, step, t, final_png=None):
+    """Save a PNG of u on the sphere for this step.
+    
+    If final_png is not None, also save a high-res 'final' PNG to that path.
+    """
     if rank != 0:
         return  # only rank 0 plots in parallel runs
 
     u_vals = u.x.array
     tri_vals = u_vals[cells].mean(axis=1)
 
-    # quantile-based normalization for better contrast
-    lo, hi = np.quantile(tri_vals, [0.02, 0.98])
-    if hi <= lo:
-        lo, hi = float(tri_vals.min()), float(tri_vals.max() + 1e-12)
-
-    norm = mpl.colors.Normalize(vmin=float(lo), vmax=float(hi))
+    # --- FIXED color scale for all frames ---
+    norm = mpl.colors.Normalize(vmin=CMAP_VMIN, vmax=CMAP_VMAX)
     cmap = plt.get_cmap("viridis")
     face_colors = cmap(norm(tri_vals))
 
@@ -160,8 +163,15 @@ def save_u_frame(u, step, t):
     # numbered filename for movie building
     frame_path = plot_dir / f"u_frame_{step:05d}.png"
     plt.savefig(frame_path, dpi=200, bbox_inches="tight")
+
+    # optional: also save a final high-res PNG
+    if final_png is not None:
+        plt.savefig(final_png, dpi=300, bbox_inches="tight")
+
     plt.close(fig)
     print(f"Saved frame {frame_path}")
+    if final_png is not None:
+        print(f"Saved final PNG {final_png}")
 
 
 # Weak forms (Laplace–Beltrami comes for free on the surface mesh)
@@ -247,4 +257,6 @@ with XDMFFile(comm, "gray_scott_sphere.xdmf", "w") as xdmf:
                       f"| u[{umin:.3f},{umax:.3f}] v[{vmin:.3f},{vmax:.3f}]")
 
                 # save movie frame of u
-                save_u_frame(u, step, t)
+                # also save a nice final PNG at the last step
+                final_png = png_u if step == num_steps else None
+                save_u_frame(u, step, t, final_png=final_png)
